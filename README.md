@@ -51,6 +51,93 @@ the longer the connection build takes. That said, the connection build is still 
 The typical use of kiaproxy is to provide one or more failover endpoints, so that if the primary endpoint is down, the secondary is used, etc etc.
 Kiaproxy is especially useful for situations like maintenance or avoiding some types of outages.
 
+## Installation
+
+Kiaproxy is available on [github](https://github.com/jpegleg/kiaproxy/), [crates.io](https://crates.io/crates/kiaproxy), and [dockerhub](https://hub.docker.com/r/carefuldata/kiaproxy).
+
+The container image is very small and hardened, with only a single statically linked Rust binary withiin.
+
+Installing and running via Docker/Podman:
+
+```
+podman pull docker.io/carefuldata/kiaproxy:latest
+podman run -e SERVERS=192.168.1.120:443,192.168.1.121:443,192.168.1.122:443 -e LISTENER=0.0.0.0:443 -d -it --network=host carefuldata/kiaproxy
+
+```
+_Note that the container image is set to use the port in the container image, so we expect to use that port for the listener when using the container but it still needs to be set.
+But the servers can use any ports, ip addresses, or DNS names in the container version._
+
+Installing via Cargo:
+
+```
+cargo install kiaproxy
+```
+
+Kiaproxy can also be compiled from source or installed from precompiled release binaries via github.
+
+Kiaproxy works well in Kubernetes, too, just specify the environment variables in the manifest.
+
+This is a simplistic manifest example, just to show the general concept. There are of course many more advanced or refined
+manifest possibilities.
+
+```
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kiaproxy
+  labels:
+    app.kubernetes.io/name: kiaproxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kiaproxy
+  template:
+    metadata:
+      labels:
+        app: kiaproxy
+        app.kubernetes.io/name: kiaproxy
+    spec:
+      containers:
+      - name: kiaproxy
+        image: "carefuldata/kiaproxy:latest"
+        ports:
+        - name: tls-passthrough
+          containerPort: 443
+          env:
+            - name: LISTENER
+              value: "0.0.0.0:443"
+            - name: SERVERS
+              value: "192.168.1.120:443,192.168.1.121:443,192.168.1.122:443"
+...
+
+```
+_Tip: add restrictions to deny disk access to the container if you like, because kiaproxy does not need the disk at all._
+
+```
+#include <tunables/global>
+
+profile k8s-apparmor-deny-write flags=(attach_disconnected) {
+  #include <abstractions/base>
+  file,
+  # Deny all file writes.
+  deny /** w,
+}
+```
+
+You can create your own container image easily as well. This example shows building a new image with a different exposed port set to 5000 and 
+is assuming a musl statically linked binary is already in $PWD for the image build. Compile kiaproxy on Alpine Linux, or extract the existing
+one from the public container image, or download one from github, to get such a binary. The compile can obviously be added to the Dockefile
+in an earlier step, or compiled in a dynamically linked way and used in an image with the right C libraries for your target.
+
+```
+FROM scratch
+COPY ./kiaproxy /kiaproxy
+EXPOSE 5000
+CMD ["/kiaproxy"]
+```
+
 #### Non-features
 
 Kiaproxy is so simple that it is easy to adapt the source code to your needs, but this version doesn't intend to expand functionality.
@@ -73,6 +160,8 @@ Kiaproxy eliminates points of failure for the endpoints it proxies, but in order
 The cheap and easy way is to have two different computers running kiaproxy (on separate hardware) and have DNS records for both, however that can still lead to outages.
 A better solution is to use [GSLB](https://www.ibm.com/think/topics/global-server-load-balancing), or something like [CARP](https://www.openbsd.org/faq/pf/carp.html),
 selecting which kiaproxy server to use in order to minimize downtime for kiaproxy itself.
+
+Kiaproxy might be used _in front_ of Kubernetes clusters, but can be run within Kubernetes clusters, or maybe in it's own dedicated "load balancer cluster", etc etc.
 
 ## Project promises
 
