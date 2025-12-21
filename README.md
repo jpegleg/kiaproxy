@@ -64,8 +64,7 @@ The following are _not_ features of kiaproxy:
 - UDP support
 - wasm32-unknown-unknown compile target
 
-The choice to use environment variables also came from the desire to further reduce dependencies, size, and syscalls. See version 0.1.0 for a reference TOML config implementation if desired.
-As of version 0.1.1 and onward, kiaproxy will not use the disk at all and can safely be denied disk access entirely.
+The choice to use environment variables also came from the desire to further reduce dependencies, size, and syscalls.
 
 ## So, what about HA of kiaproxy itself?
 
