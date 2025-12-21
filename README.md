@@ -64,7 +64,7 @@ Kiaproxy is available on [github](https://github.com/jpegleg/kiaproxy/), [crates
 
 The container image is very small and hardened, with only a single statically linked Rust binary withiin.
 
-Here is an example of pulling the image from dockerhub and running via Podman or Docker:
+Here is an example of pulling the image from docker hub and running via Podman or Docker:
 
 ```
 podman pull docker.io/carefuldata/kiaproxy:latest
