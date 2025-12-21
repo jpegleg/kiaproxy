@@ -9,10 +9,17 @@ It can run in a container, VM, or baremetal, and should compile to many OS targe
 
 There is a single algorithm for backend selection, which is an ordered selection based on first available.
 
-The configuration comes from required environment variables:
+The configuration comes from required environment variables. Set the SERVERS variable
+to the backend endpoints to route traffic to, change them to fit the needs. DNS names or IPs can be used, but a colon and the port is required. 
+
+Set the LISTENER to the endpoint kiaproxy is to listen on, typically `0.0.0.0:443` would be used for TLS-passthrough, and is how the container port is exposed.
+
+Example showing the environment variables, for running the program binary directly in a shell, such as on the command line, in systemd, or an rc service:
+
 ```
-export SERVERS=192.168.1.33:443,192.168.1.34:443,192.168.1.55:443
-export LISTENER=0.0.0.0:443
+export SERVERS=192.168.1.33:443,192.168.1.34:443,192.168.1.55:443 &&
+export LISTENER=0.0.0.0:443 &&
+kiaproxy
 ```
 
 The servers list will default to the first item and check each server starting from the first item.
@@ -57,14 +64,14 @@ Kiaproxy is available on [github](https://github.com/jpegleg/kiaproxy/), [crates
 
 The container image is very small and hardened, with only a single statically linked Rust binary withiin.
 
-Installing and running via Docker/Podman:
+Here is an example of pulling the image from dockerhub and running via Podman or Docker:
 
 ```
 podman pull docker.io/carefuldata/kiaproxy:latest
 podman run -e SERVERS=192.168.1.120:443,192.168.1.121:443,192.168.1.122:443 -e LISTENER=0.0.0.0:443 -d -it --network=host carefuldata/kiaproxy
 
 ```
-_Note that the container image is set to use the port in the container image, so we expect to use that port for the listener when using the container but it still needs to be set.
+_Note that the container image is set to use the port in the container image, so we expect to use the 443 port for the listener when using the container but it still needs to be set.
 But the servers can use any ports, ip addresses, or DNS names in the container version._
 
 Installing via Cargo:
