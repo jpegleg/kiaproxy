@@ -31,17 +31,17 @@ each request is connected to the first available server and health checks are do
 In this example, we see the first server being offline on the third client request with transaction id 41b14e15-b659-490a-ab31-a6dd58bda9d8.
 
 ```
-2025-12-21T00:52:17.223Z - INIT - INFO: kiaproxy v0.1.2 TCP load balancer listening on TcpListener { addr: 0.0.0.0:443, fd: 10 } with backends["192.168.1.33:443", "192.168.1.34:443", "192.168.1.55:443"]
+2025-12-21T00:52:17.223Z - INIT - INFO: kiaproxy v0.1.3 TCP load balancer listening on TcpListener { addr: 0.0.0.0:443, fd: 10 } with backends["192.168.1.33:443", "192.168.1.34:443", "192.168.1.55:443"]
 2025-12-21T00:53:13.929Z - ce4fe9c1-d281-49d3-bafa-5df113c30549 - INFO: checking for backend 192.168.1.33:443
 2025-12-21T00:53:13.930Z - ce4fe9c1-d281-49d3-bafa-5df113c30549 - INFO: selected first online backend 192.168.1.33:443
-2025-12-21T00:53:13.930Z - ce4fe9c1-d281-49d3-bafa-5df113c30549 - INFO: 192.168.1.240:58290 connected to backend Ok(192.168.1.33:443)
+2025-12-21T00:53:13.930Z - ce4fe9c1-d281-49d3-bafa-5df113c30549 - INFO: 192.168.1.240:58290 connecting to backend Ok(192.168.1.33:443)
 2025-12-21T00:53:24.533Z - ec0d3625-341c-4548-ab54-430b61e5ed27 - INFO: checking for backend 192.168.1.33:443
 2025-12-21T00:53:24.533Z - ec0d3625-341c-4548-ab54-430b61e5ed27 - INFO: selected first online backend 192.168.1.33:443
-2025-12-21T00:53:24.534Z - ec0d3625-341c-4548-ab54-430b61e5ed27 - INFO: 192.168.1.240:45262 connected to backend Ok(192.168.1.33:443)
+2025-12-21T00:53:24.534Z - ec0d3625-341c-4548-ab54-430b61e5ed27 - INFO: 192.168.1.240:45262 connecting to backend Ok(192.168.1.33:443)
 2025-12-21T00:53:34.801Z - 41b14e15-b659-490a-ab31-a6dd58bda9d8 - INFO: checking for backend 192.168.1.33:443
 2025-12-21T00:53:34.801Z - 41b14e15-b659-490a-ab31-a6dd58bda9d8 - INFO: checking for backend 192.168.1.34:443
 2025-12-21T00:53:34.801Z - 41b14e15-b659-490a-ab31-a6dd58bda9d8 - INFO: selected first online backend 192.168.1.34:443
-2025-12-21T00:53:34.801Z - 41b14e15-b659-490a-ab31-a6dd58bda9d8 - INFO: 192.168.1.240:52474 connected to backend Ok(192.168.1.34:443)
+2025-12-21T00:53:34.801Z - 41b14e15-b659-490a-ab31-a6dd58bda9d8 - INFO: 192.168.1.240:52474 connecting to backend Ok(192.168.1.34:443)
 ```
 
 Kiaproxy is a TCP load balancer and can handle TLS passthrough (SSL/TLS/HTTPS backends), HTTP backends, and TCP/raw backends.
@@ -50,7 +50,7 @@ The connection is a bidirectional stream that works well for many types of netwo
 
 If no servers are available, the first one will be tried 9 times, sleeping for 1 second between each attempt, before disconnecting the client.
 
-If a server is selected for use because it is online and somehow immediately goes offline before the client is connected, the connection will retry 9 times, sleeping for 1 second between each try.
+If a server is selected for use because it is online and then goes offline, the connection will retry 28 times (version 0.1.3 has 28 retries, version 0.1.2 has 9 retries), sleeping for 1 second between each try.
 
 Because of the algorithm, it is better to keep online servers near the "front" (left) of the server list - having many offline servers on the left still works, but the greater number of offline servers before reaching an online server,
 the longer the connection build takes. That said, the connection build is still very fast in most uses, even with the health checks happening before the stream is established.
@@ -60,9 +60,9 @@ Kiaproxy is especially useful for situations like maintenance or avoiding some t
 
 ## Installation
 
-Kiaproxy is available on [github](https://github.com/jpegleg/kiaproxy/), [crates.io](https://crates.io/crates/kiaproxy), and [dockerhub](https://hub.docker.com/r/carefuldata/kiaproxy).
+Kiaproxy is available on [github](https://github.com/jpegleg/kiaproxy/), [crates.io](https://crates.io/crates/kiaproxy), and [docker hub](https://hub.docker.com/r/carefuldata/kiaproxy).
 
-The container image is very small and hardened, with only a single statically linked Rust binary withiin.
+The container image is very small and hardened, with only a single statically linked Rust binary added to a minimized container "scratch" image.
 
 Here is an example of pulling the image from docker hub and running via Podman or Docker:
 
@@ -71,7 +71,7 @@ podman pull docker.io/carefuldata/kiaproxy:latest
 podman run -e SERVERS=192.168.1.120:443,192.168.1.121:443,192.168.1.122:443 -e LISTENER=0.0.0.0:443 -d -it --network=host carefuldata/kiaproxy
 
 ```
-_Note that the container image is set to use (EXPOSE) the 443 port in the container image, so we expect to use the 443 port for the listener when using the container but it still needs to be set as an environment variable.
+_Note that the default container image is set to use (EXPOSE) the 443 port in the container image, so we expect to use the 443 port for the listener when using the container but it still needs to be set as an environment variable.
 The servers can use any ports, ip addresses, or DNS names in the container version._
 
 Installing via Cargo:
@@ -165,10 +165,11 @@ The choice to use environment variables also came from the desire to further red
 Kiaproxy eliminates points of failure for the endpoints it proxies, but in order for kiaproxy itself to be highly available, we need a second kiaproxy instance, ideally on separate physical hardware.
 
 The cheap and easy way is to have two different computers running kiaproxy (on separate hardware) and have DNS records for both, however that can still lead to outages.
-A better solution is to use [GSLB](https://www.ibm.com/think/topics/global-server-load-balancing), or something like [CARP](https://www.openbsd.org/faq/pf/carp.html),
+A better solution is to use [GSLB](https://www.ibm.com/think/topics/global-server-load-balancing), and/or something like [CARP](https://www.openbsd.org/faq/pf/carp.html),
 selecting which kiaproxy server to use in order to minimize downtime for kiaproxy itself.
 
 Kiaproxy might be used _in front_ of Kubernetes clusters, but can be run within Kubernetes clusters, or maybe in it's own dedicated "load balancer cluster", etc etc.
+
 
 ## Project promises
 
