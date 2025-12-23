@@ -48,7 +48,7 @@ Kiaproxy is a TCP load balancer and can handle TLS passthrough (SSL/TLS/HTTPS ba
 
 The connection is a bidirectional stream that works well for many types of network connections.
 
-If no servers are available, the first one will be tried 9 times, sleeping for 1 second between each attempt, before disconnecting the client.
+If no servers are available, the first one will be tried (version 0.1.3 tries 28 times, version 0.1.2 tries 9 times), sleeping for 1 second between each attempt, before disconnecting the client.
 
 If a server is selected for use because it is online and then goes offline, the connection will retry 28 times (version 0.1.3 has 28 retries, version 0.1.2 has 9 retries), sleeping for 1 second between each try.
 
