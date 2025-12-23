@@ -67,14 +67,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     let strt = chrono::DateTime::<Utc>::from(SystemTime::now()).to_rfc3339_opts(SecondsFormat::Millis, true);
-    println!("{strt} - INIT - INFO: kiaproxy v0.1.2 TCP load balancer listening on {:?} with backends {:?}", listener, servers);
+    println!("{strt} - INIT - INFO: kiaproxy v0.1.3 TCP load balancer listening on {:?} with backends {:?}", listener, servers);
 
     loop {
         let (mut inbound, addr) = listener.accept().await?;
         let servers = servers.clone();
         tokio::spawn(async move {
             let txid = Uuid::new_v4().to_string();
-            let max_retries = 9;
+            let max_retries = 28;
             let delay = Duration::from_secs(1);
 
             let mut selected = servers[0].clone();
@@ -94,7 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match retry_connect(&txid, &selected, max_retries, delay).await {
                 Ok(mut stream) => {
                     let ts = chrono::DateTime::<Utc>::from(SystemTime::now()).to_rfc3339_opts(SecondsFormat::Millis, true);
-                    println!("{ts} - {txid} - INFO: {addr} connected to backend {:?}", stream.peer_addr());
+                    println!("{ts} - {txid} - INFO: {addr} connecting to backend {:?}", stream.peer_addr());
 
                     if let Err(e) = tokio::io::copy_bidirectional(&mut inbound, &mut stream).await {
                         let ts = chrono::DateTime::<Utc>::from(SystemTime::now()).to_rfc3339_opts(SecondsFormat::Millis, true);
