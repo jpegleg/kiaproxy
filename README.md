@@ -28,7 +28,7 @@ The first server that responds over TCP for a client request is the one selected
 Unlike many load balancers, the kiaproxy "health check" is done per request. There is no UP/DOWN shared state or control loop of health checks,
 each request is connected to the first available server and health checks are done per client request.
 
-In this example, we see the first server being offline on the third client request with trandaction id 41b14e15-b659-490a-ab31-a6dd58bda9d8.
+In this example, we see the first server being offline on the third client request with transaction id 41b14e15-b659-490a-ab31-a6dd58bda9d8.
 
 ```
 2025-12-21T00:52:17.223Z - INIT - INFO: kiaproxy v0.1.2 TCP load balancer listening on TcpListener { addr: 0.0.0.0:443, fd: 10 } with backends["192.168.1.33:443", "192.168.1.34:443", "192.168.1.55:443"]
@@ -71,8 +71,8 @@ podman pull docker.io/carefuldata/kiaproxy:latest
 podman run -e SERVERS=192.168.1.120:443,192.168.1.121:443,192.168.1.122:443 -e LISTENER=0.0.0.0:443 -d -it --network=host carefuldata/kiaproxy
 
 ```
-_Note that the container image is set to use the port in the container image, so we expect to use the 443 port for the listener when using the container but it still needs to be set.
-But the servers can use any ports, ip addresses, or DNS names in the container version._
+_Note that the container image is set to use (EXPOSE) the 443 port in the container image, so we expect to use the 443 port for the listener when using the container but it still needs to be set as an environment variable.
+The servers can use any ports, ip addresses, or DNS names in the container version._
 
 Installing via Cargo:
 
