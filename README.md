@@ -168,6 +168,10 @@ The cheap and easy way is to have two different computers running kiaproxy (on s
 A better solution is to use [GSLB](https://www.ibm.com/think/topics/global-server-load-balancing), and/or something like [CARP](https://www.openbsd.org/faq/pf/carp.html),
 selecting which kiaproxy server to use in order to minimize downtime for kiaproxy itself.
 
+<b>Important note for running kiaproxy on OpenBSD:</b> The file limits (the important default to change is defined in /etc/login.conf) should be raised from the OpenBSD defaults, otherwise a DoS condition is possible. 
+The other limit on OpenBSD is from (sysctl kern.maxfiles), which is the global limit that is usually more reasonable. I would ensure kiaproxy can get over 4,000 files, and wouldn't feel bad about going higher, especially
+if internet facing.
+
 Kiaproxy might be used _in front_ of Kubernetes clusters, but can be run within Kubernetes clusters, or maybe in it's own dedicated "load balancer cluster", etc etc.
 
 
