@@ -160,6 +160,8 @@ The following are _not_ features of kiaproxy:
 
 The choice to use environment variables also came from the desire to further reduce dependencies, size, and syscalls.
 
+Also see [kiagateway](https://github.com/jpegleg/kiagateway/) regarding another small proxy service, kiagateway performs TCP domain-based routing.
+
 ## So, what about HA of kiaproxy itself?
 
 Kiaproxy eliminates points of failure for the endpoints it proxies, but in order for kiaproxy itself to be highly available, we need a second kiaproxy instance, ideally on separate physical hardware.
