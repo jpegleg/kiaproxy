@@ -67,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     let strt = chrono::DateTime::<Utc>::from(SystemTime::now()).to_rfc3339_opts(SecondsFormat::Millis, true);
-    println!("{strt} - INIT - INFO: kiaproxy v0.1.3 TCP load balancer listening on {:?} with backends {:?}", listener, servers);
+    println!("{strt} - INIT - INFO: kiaproxy v0.1.4 TCP load balancer listening on {:?} with backends {:?}", listener, servers);
 
     loop {
         let (mut inbound, addr) = listener.accept().await?;
@@ -76,7 +76,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let txid = Uuid::new_v4().to_string();
             let max_retries = 28;
             let delay = Duration::from_secs(1);
-
             let mut selected = servers[0].clone();
 
             for srv in servers {
