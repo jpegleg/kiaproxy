@@ -1,6 +1,6 @@
 [package]
 name = "kiaproxy"
-version = "0.1.4"
+version = "0.2.0"
 edition = "2024"
 authors = ["Keegan Bowen <carefuldata@protonmail.com>"]
 license = "MIT"
@@ -12,6 +12,6 @@ categories = ["network-programming"]
 keywords = ["tcp", "high-availability", "ha", "tls-passthrough", "proxy"]
 
 [dependencies]
-tokio = { version = "1.52.3", features = ["net", "rt-multi-thread", "io-util", "time", "macros"] }
+tokio = { version = "1.52.3", features = ["net", "sync", "rt-multi-thread", "io-util", "time", "macros"] }
 chrono = "0.4.45"
 uuid = { version = "1.23.4", features = ["v4"] }
