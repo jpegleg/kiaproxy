@@ -7,23 +7,42 @@ Kiaproxy is a minimalistic and high performance TCP load balancer for the purpos
 The source code is minimalistic and understandable, fast compiling, built on [Tokio](https://crates.io/crates/tokio) async-io, and uses very few system resources.
 It can run in a container, VM, or baremetal, and should compile to many OS targets.
 
-There is a single algorithm for backend selection, which is an ordered selection based on first available.
+Originally there was a single algorithm for backend selection (ordered), which is an ordered selection based on first available. As of version `0.2.0`, we now also have "round-robin', "least-conn", and "sticky-clients" algorithms.
 
 The configuration comes from required environment variables. Set the SERVERS variable
 to the backend endpoints to route traffic to, change them to fit the needs. DNS names or IPs can be used, but a colon and the port is required. 
 
 Set the LISTENER to the endpoint kiaproxy is to listen on, typically `0.0.0.0:443` would be used for TLS-passthrough, and is how the container port is exposed.
 
+There is also an optional environment variable for LB_ALGO. If LB_ALGO is not set, then kiaproxy defaults to "ordered".
+
 Example showing the environment variables, for running the program binary directly in a shell, such as on the command line, in systemd, or an rc service:
 
 ```
 export SERVERS=192.168.1.33:443,192.168.1.34:443,192.168.1.55:443 &&
 export LISTENER=0.0.0.0:443 &&
+export LB_ALGO=round-robin
 kiaproxy
 ```
 
+### The "ordered" algorithm
+
 The servers list will default to the first item and check each server starting from the first item.
 The first server that responds over TCP for a client request is the one selected for use for that client request.
+
+### The "round-robin" algorithm
+
+The server list will be cycled through, routing requests to the next one on the list and then starting again with the first one after each server has had a request.
+
+### The "least-conn" algorithm
+
+The servers with the least amount of connections are prioritized. If it is a tie, then round-robin is used.
+
+### The "sticky-clients" algorithm
+
+The in-RAM connection tracking checks client source IP if existing entries are found for a previous connection to a backend, the same backend is preferred.
+
+### health checks
 
 Unlike many load balancers, the kiaproxy "health check" is done per request. There is no UP/DOWN shared state or control loop of health checks,
 each request is connected to the first available server and health checks are done per client request.
@@ -48,15 +67,17 @@ Kiaproxy is a TCP load balancer and can handle TLS passthrough (SSL/TLS/HTTPS ba
 
 The connection is a bidirectional stream that works well for many types of network connections.
 
-If no servers are available, the first one will be tried (version 0.1.3 tries 28 times, version 0.1.2 tries 9 times), sleeping for 1 second between each attempt, before disconnecting the client.
+If no servers are available, the first selection will be tried (version 0.1.3 tries 28 times, version 0.1.2 tries 9 times), sleeping for 1 second between each attempt, before disconnecting the client.
 
 If a server is selected for use because it is online and then goes offline, the connection will retry 28 times (version 0.1.3 has 28 retries, version 0.1.2 has 9 retries), sleeping for 1 second between each try.
 
-Because of the algorithm, it is better to keep online servers near the "front" (left) of the server list - having many offline servers on the left still works, but the greater number of offline servers before reaching an online server,
+When using the "ordered" algorithm, it is better to keep online servers near the "front" (left) of the server list - having many offline servers on the left still works, but the greater number of offline servers before reaching an online server,
 the longer the connection build takes. That said, the connection build is still very fast in most uses, even with the health checks happening before the stream is established.
 
 The typical use of kiaproxy is to provide one or more failover endpoints, so that if the primary endpoint is down, the secondary is used, etc etc.
 Kiaproxy is especially useful for situations like maintenance or avoiding some types of outages.
+
+With the expansion of algorithms in version `0.2.0`, kiaproxy can also be used to distribute (fan-out) traffic.
 
 ## Installation
 
@@ -147,12 +168,11 @@ CMD ["/kiaproxy"]
 
 #### Non-features
 
-Kiaproxy is so simple that it is easy to adapt the source code to your needs, but this version doesn't intend to expand functionality.
+Kiaproxy is so simple that it is easy to adapt the source code to your needs, but this program is unlikely to add many features.
 This decision is in order to keep the program small, few dependencies, extremely light on system resources, and purpose built.
 
 The following are _not_ features of kiaproxy:
 
-- fan-out algorithms such as round-robin or random selection
 - hot loading of configuration values
 - TLS termination
 - UDP support
