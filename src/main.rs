@@ -1,5 +1,4 @@
 #![forbid(unsafe_code)]
-
 use chrono::{SecondsFormat, Utc};
 use std::collections::HashMap;
 use std::env;
@@ -14,6 +13,11 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
 use tokio::time::{Duration, sleep};
 use uuid::Uuid;
+
+#[cfg(unix)]
+use signal_hook::consts::signal::SIGPIPE;
+#[cfg(unix)]
+use std::sync::atomic::AtomicBool;
 
 #[derive(Debug, Clone, Copy)]
 enum LoadBalancingAlgorithm {
@@ -71,18 +75,55 @@ fn timestamp() -> String {
 }
 
 fn log_init(message: &str) {
-    let ts = timestamp();
-    println!("{ts} - INIT - INFO: {message}");
+    println!("{} - INIT - INFO: {message}", timestamp());
 }
 
 fn log_info(txid: &str, message: &str) {
-    let ts = timestamp();
-    println!("{ts} - {txid} - INFO: {message}");
+    println!("{} - {txid} - INFO: {message}", timestamp());
 }
 
 fn log_error(txid: &str, message: &str) {
-    let ts = timestamp();
-    println!("{ts} - {txid} - ERROR: {message}");
+    println!("{} - {txid} - ERROR: {message}", timestamp());
+}
+
+fn log_listener_error(message: &str) {
+    println!("{} - LISTENER - ERROR: {message}", timestamp());
+}
+
+#[cfg(unix)]
+fn install_sigpipe_handler() -> io::Result<()> {
+    let received = Arc::new(AtomicBool::new(false));
+
+    signal_hook::flag::register(SIGPIPE, received)
+        .map(|_| ())
+        .map_err(io::Error::other)
+}
+
+#[cfg(not(unix))]
+fn install_sigpipe_handler() -> io::Result<()> {
+    Ok(())
+}
+
+fn is_connection_abort(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::BrokenPipe
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::ConnectionReset
+            | io::ErrorKind::UnexpectedEof
+            | io::ErrorKind::NotConnected
+    )
+}
+
+fn describe_connection_error(error: &io::Error) -> &'static str {
+    match error.kind() {
+        io::ErrorKind::BrokenPipe => "broken pipe",
+        io::ErrorKind::ConnectionAborted => "connection aborted",
+        io::ErrorKind::ConnectionReset => "connection reset",
+        io::ErrorKind::UnexpectedEof => "unexpected end of stream",
+        io::ErrorKind::NotConnected => "socket no longer connected",
+        _ => "I/O error",
+    }
 }
 
 async fn retry_connect(
@@ -95,22 +136,22 @@ async fn retry_connect(
 
     while retries < max_retries {
         match TcpStream::connect(address).await {
-            Ok(stream) => {
-                return Ok(stream);
-            }
-            Err(e) => {
+            Ok(stream) => return Ok(stream),
+            Err(error) => {
                 retries += 1;
+
                 log_error(
                     txid,
                     &format!(
-                        "failed to connect to {address} attempt {retries} of {max_retries} - {e:?}"
+                        "failed to connect to {address} attempt {retries} \
+                         of {max_retries} - {error:?}"
                     ),
                 );
 
                 if retries < max_retries {
                     sleep(delay).await;
                 } else {
-                    return Err(e);
+                    return Err(error);
                 }
             }
         }
@@ -124,11 +165,11 @@ async fn health(addr: &str) -> bool {
 }
 
 async fn ordered_select(txid: &str, servers: &[String]) -> Option<usize> {
-    for (idx, srv) in servers.iter().enumerate() {
-        log_info(txid, &format!("checking backend {srv}"));
+    for (idx, server) in servers.iter().enumerate() {
+        log_info(txid, &format!("checking backend {server}"));
 
-        if health(srv).await {
-            log_info(txid, &format!("selected ordered backend {srv}"));
+        if health(server).await {
+            log_info(txid, &format!("selected ordered backend {server}"));
             return Some(idx);
         }
     }
@@ -150,17 +191,18 @@ async fn round_robin_select(
 
     for offset in 0..server_count {
         let idx = (start + offset) % server_count;
-        let srv = &servers[idx];
+        let server = &servers[idx];
 
-        log_info(txid, &format!("checking backend {srv}"));
+        log_info(txid, &format!("checking backend {server}"));
 
-        if health(srv).await {
+        if health(server).await {
             {
                 let mut guard = state.lock().await;
                 guard.rr_next = (idx + 1) % server_count;
             }
 
-            log_info(txid, &format!("selected round-robin backend {srv}"));
+            log_info(txid, &format!("selected round-robin backend {server}"));
+
             return Some(idx);
         }
     }
@@ -176,10 +218,10 @@ async fn least_conn_select(
     let server_count = servers.len();
     let mut healthy = Vec::new();
 
-    for (idx, srv) in servers.iter().enumerate() {
-        log_info(txid, &format!("checking backend {srv}"));
+    for (idx, server) in servers.iter().enumerate() {
+        log_info(txid, &format!("checking backend {server}"));
 
-        if health(srv).await {
+        if health(server).await {
             healthy.push(idx);
         }
     }
@@ -212,7 +254,8 @@ async fn least_conn_select(
             log_info(
                 txid,
                 &format!(
-                    "selected least-conn backend {} with {min_count} open connection(s)",
+                    "selected least-conn backend {} with \
+                     {min_count} open connection(s)",
                     servers[candidate]
                 ),
             );
@@ -236,26 +279,29 @@ async fn sticky_clients_select(
     };
 
     if let Some(idx) = existing
-        && let Some(srv) = servers.get(idx) {
+        && let Some(server) = servers.get(idx)
+    {
+        log_info(
+            txid,
+            &format!("checking sticky backend {server} for client {client_ip}"),
+        );
+
+        if health(server).await {
             log_info(
                 txid,
-                &format!("checking sticky backend {srv} for client {client_ip}"),
+                &format!("selected sticky backend {server} for client {client_ip}"),
             );
 
-            if health(srv).await {
-                log_info(
-                    txid,
-                    &format!("selected sticky backend {srv} for client {client_ip}"),
-                );
-                return Some(idx);
-            }
+            return Some(idx);
+        }
 
-            log_info(
-                txid,
-                &format!(
-                    "sticky backend {srv} for client {client_ip} is down, falling back to round-robin"
-                ),
-            );
+        log_info(
+            txid,
+            &format!(
+                "sticky backend {server} for client {client_ip} is down, \
+                 falling back to round-robin"
+            ),
+        );
     }
 
     let selected = round_robin_select(txid, servers, state.clone()).await;
@@ -322,7 +368,7 @@ fn read_required_env(name: &str, help: &str) -> String {
 fn parse_servers(raw: &str) -> Vec<String> {
     raw.split(',')
         .map(str::trim)
-        .filter(|s| !s.is_empty())
+        .filter(|server| !server.is_empty())
         .map(ToString::to_string)
         .collect()
 }
@@ -330,11 +376,12 @@ fn parse_servers(raw: &str) -> Vec<String> {
 fn read_algorithm() -> LoadBalancingAlgorithm {
     match env::var("LB_ALGO") {
         Ok(value) => match LoadBalancingAlgorithm::from_str(&value) {
-            Ok(algo) => algo,
-            Err(e) => {
-                println!("{e}");
+            Ok(algorithm) => algorithm,
+            Err(error) => {
+                println!("{error}");
                 println!(
-                    "Supported LB_ALGO values: round-robin, ordered, least-conn, sticky-clients"
+                    "Supported LB_ALGO values: round-robin, ordered, \
+                         least-conn, sticky-clients"
                 );
                 process::exit(1);
             }
@@ -343,95 +390,150 @@ fn read_algorithm() -> LoadBalancingAlgorithm {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let listenerstr = read_required_env(
-        "LISTENER",
-        "Set the environment variable LISTENER to the endpoint kiaproxy is to listen on.\nExample:\n  export LISTENER=0.0.0.0:443",
+async fn proxy_connection(
+    mut inbound: TcpStream,
+    client_addr: std::net::SocketAddr,
+    servers: Arc<Vec<String>>,
+    state: Arc<Mutex<BalancerState>>,
+    algorithm: LoadBalancingAlgorithm,
+) {
+    let txid = Uuid::new_v4().to_string();
+    let max_retries = 28;
+    let delay = Duration::from_secs(1);
+    let client_ip = client_addr.ip();
+
+    let Some(selected_idx) =
+        select_backend(&txid, client_ip, &servers, state.clone(), algorithm).await
+    else {
+        log_error(
+            &txid,
+            &format!("no healthy backend available for client {client_addr}"),
+        );
+
+        return;
+    };
+
+    let selected = servers[selected_idx].clone();
+
+    let mut backend = match retry_connect(&txid, &selected, max_retries, delay).await {
+        Ok(stream) => stream,
+        Err(error) => {
+            log_error(
+                &txid,
+                &format!(
+                    "failed to connect after {max_retries} retries \
+                         for {client_addr} to backend {selected} - {error:?}"
+                ),
+            );
+
+            return;
+        }
+    };
+
+    increment_open_connections(state.clone(), selected_idx).await;
+
+    let backend_peer = backend
+        .peer_addr()
+        .map(|addr| addr.to_string())
+        .unwrap_or_else(|_| selected.clone());
+
+    log_info(
+        &txid,
+        &format!("{client_addr} connecting to backend {backend_peer}"),
     );
 
-    let serversstr = read_required_env(
+    let copy_result = tokio::io::copy_bidirectional(&mut inbound, &mut backend).await;
+
+    decrement_open_connections(state, selected_idx).await;
+
+    match copy_result {
+        Ok((client_to_backend, backend_to_client)) => {
+            log_info(
+                &txid,
+                &format!(
+                    "{client_addr} sent {client_to_backend}B has disconnected from backend {selected} that sent {backend_to_client}B"
+                ),
+            );
+        }
+        Err(error) if is_connection_abort(&error) => {
+            log_info(
+                &txid,
+                &format!(
+                    "connection closed for {client_addr} to backend \
+                     {selected}: {} - {error}",
+                    describe_connection_error(&error)
+                ),
+            );
+        }
+        Err(error) => {
+            log_error(
+                &txid,
+                &format!(
+                    "proxy I/O error for {client_addr} to backend \
+                     {selected} - {error:?}"
+                ),
+            );
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    install_sigpipe_handler()?;
+
+    let listener_address = read_required_env(
+        "LISTENER",
+        "Set the environment variable LISTENER to the endpoint \
+         kiaproxy is to listen on.\nExample:\n  \
+         export LISTENER=0.0.0.0:443",
+    );
+
+    let servers_raw = read_required_env(
         "SERVERS",
-        "Set the environment variable SERVERS to the list of backends for kiaproxy to proxy and route to.\nExample:\n  export SERVERS=192.168.1.120:443,192.168.1.121:443,192.168.1.122:443",
+        "Set the environment variable SERVERS to the list of \
+         backends for kiaproxy to proxy and route to.\nExample:\n  \
+         export SERVERS=192.168.1.120:443,192.168.1.121:443,\
+         192.168.1.122:443",
     );
 
     let algorithm = read_algorithm();
-    let servers = parse_servers(&serversstr);
+    let servers = parse_servers(&servers_raw);
 
     if servers.is_empty() {
         println!("SERVERS must contain at least one backend.");
         process::exit(1);
     }
 
-    let listener = TcpListener::bind(&listenerstr).await?;
+    let listener = TcpListener::bind(&listener_address).await?;
     let servers = Arc::new(servers);
     let state = Arc::new(Mutex::new(BalancerState::new(servers.len())));
 
     log_init(&format!(
-        "kiaproxy v0.2.0 TCP load balancer listening on {listenerstr} with LB_ALGO={algorithm} and backends {:?}",
+        "kiaproxy v0.2.0 TCP load balancer listening on \
+         {listener_address} with LB_ALGO={algorithm} and backends {:?}",
         servers
     ));
 
     loop {
-        let (mut inbound, client_addr) = listener.accept().await?;
-        let servers = servers.clone();
-        let state = state.clone();
+        let (inbound, client_addr) = match listener.accept().await {
+            Ok(connection) => connection,
+            Err(error) => {
+                log_listener_error(&format!("failed to accept connection - {error:?}"));
+
+                if error.kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+
+                sleep(Duration::from_millis(100)).await;
+                continue;
+            }
+        };
+
+        let servers = Arc::clone(&servers);
+        let state = Arc::clone(&state);
 
         tokio::spawn(async move {
-            let txid = Uuid::new_v4().to_string();
-            let max_retries = 28;
-            let delay = Duration::from_secs(1);
-            let client_ip = client_addr.ip();
-
-            let Some(selected_idx) =
-                select_backend(&txid, client_ip, &servers, state.clone(), algorithm).await
-            else {
-                log_error(
-                    &txid,
-                    &format!("no healthy backend available for client {client_addr}"),
-                );
-                return;
-            };
-
-            let selected = servers[selected_idx].clone();
-
-            match retry_connect(&txid, &selected, max_retries, delay).await {
-                Ok(mut stream) => {
-                    increment_open_connections(state.clone(), selected_idx).await;
-
-                    let peer = match stream.peer_addr() {
-                        Ok(addr) => addr.to_string(),
-                        Err(_) => selected.clone(),
-                    };
-
-                    log_info(
-                        &txid,
-                        &format!("{client_addr} connecting to backend {peer}"),
-                    );
-
-                    if let Err(e) = tokio::io::copy_bidirectional(&mut inbound, &mut stream).await {
-                        log_info(
-                            &txid,
-                            &format!("connection drop {client_addr} to backend {selected} - {e}"),
-                        );
-                    }
-
-                    decrement_open_connections(state.clone(), selected_idx).await;
-
-                    log_info(
-                        &txid,
-                        &format!("{client_addr} disconnected from backend {selected}"),
-                    );
-                }
-                Err(e) => {
-                    log_error(
-                        &txid,
-                        &format!(
-                            "failed to connect after {max_retries} retries for {client_addr} to backend {selected} - {e:?}"
-                        ),
-                    );
-                }
-            }
+            proxy_connection(inbound, client_addr, servers, state, algorithm).await;
         });
     }
 }
