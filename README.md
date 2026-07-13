@@ -45,23 +45,7 @@ The in-RAM connection tracking checks client source IP if existing entries are f
 ### health checks
 
 Unlike many load balancers, the kiaproxy "health check" is done per request. There is no UP/DOWN shared state or control loop of health checks,
-each request is connected to the first available server and health checks are done per client request.
-
-In this example, we see the first server being offline on the third client request with transaction id 41b14e15-b659-490a-ab31-a6dd58bda9d8.
-
-```
-2025-12-21T00:52:17.223Z - INIT - INFO: kiaproxy v0.1.3 TCP load balancer listening on TcpListener { addr: 0.0.0.0:443, fd: 10 } with backends["192.168.1.33:443", "192.168.1.34:443", "192.168.1.55:443"]
-2025-12-21T00:53:13.929Z - ce4fe9c1-d281-49d3-bafa-5df113c30549 - INFO: checking for backend 192.168.1.33:443
-2025-12-21T00:53:13.930Z - ce4fe9c1-d281-49d3-bafa-5df113c30549 - INFO: selected first online backend 192.168.1.33:443
-2025-12-21T00:53:13.930Z - ce4fe9c1-d281-49d3-bafa-5df113c30549 - INFO: 192.168.1.240:58290 connecting to backend Ok(192.168.1.33:443)
-2025-12-21T00:53:24.533Z - ec0d3625-341c-4548-ab54-430b61e5ed27 - INFO: checking for backend 192.168.1.33:443
-2025-12-21T00:53:24.533Z - ec0d3625-341c-4548-ab54-430b61e5ed27 - INFO: selected first online backend 192.168.1.33:443
-2025-12-21T00:53:24.534Z - ec0d3625-341c-4548-ab54-430b61e5ed27 - INFO: 192.168.1.240:45262 connecting to backend Ok(192.168.1.33:443)
-2025-12-21T00:53:34.801Z - 41b14e15-b659-490a-ab31-a6dd58bda9d8 - INFO: checking for backend 192.168.1.33:443
-2025-12-21T00:53:34.801Z - 41b14e15-b659-490a-ab31-a6dd58bda9d8 - INFO: checking for backend 192.168.1.34:443
-2025-12-21T00:53:34.801Z - 41b14e15-b659-490a-ab31-a6dd58bda9d8 - INFO: selected first online backend 192.168.1.34:443
-2025-12-21T00:53:34.801Z - 41b14e15-b659-490a-ab31-a6dd58bda9d8 - INFO: 192.168.1.240:52474 connecting to backend Ok(192.168.1.34:443)
-```
+each request is connected only connected to a server that reports up in-flight and health checks are done per client request.
 
 Kiaproxy is a TCP load balancer and can handle TLS passthrough (SSL/TLS/HTTPS backends), HTTP backends, and TCP/raw backends.
 
@@ -192,7 +176,7 @@ selecting which kiaproxy server to use in order to minimize downtime for kiaprox
 
 <b>Important note for running kiaproxy on OpenBSD:</b> The file limits (the important default to change is defined in /etc/login.conf) should be raised from the OpenBSD defaults, otherwise a DoS condition is possible. 
 The other limit on OpenBSD is from (sysctl kern.maxfiles), which is the global limit that is usually more reasonable. I would ensure kiaproxy can get over 4,000 files, and wouldn't feel bad about going higher, especially
-if internet facing.
+if internet facing. Further, kiaproxy version before `0.2.0` do not have complete BSD POSIX network error handling, so denial of service can be trivial unless carefully managed. It is better to use version 0.2.0, especially when running kiaproxy on a *BSD operating system.
 
 Kiaproxy might be used _in front_ of Kubernetes clusters, but can be run within Kubernetes clusters, or maybe in it's own dedicated "load balancer cluster", etc etc.
 
