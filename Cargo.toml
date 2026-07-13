@@ -15,3 +15,4 @@ keywords = ["tcp", "high-availability", "ha", "tls-passthrough", "proxy"]
 tokio = { version = "1.52.3", features = ["net", "sync", "rt-multi-thread", "io-util", "time", "macros"] }
 chrono = "0.4.45"
 uuid = { version = "1.23.4", features = ["v4"] }
+signal-hook= "0.4.4"
