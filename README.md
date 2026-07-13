@@ -45,7 +45,7 @@ The in-RAM connection tracking checks client source IP if existing entries are f
 ### health checks
 
 Unlike many load balancers, the kiaproxy "health check" is done per request. There is no UP/DOWN shared state or control loop of health checks,
-each request is connected only connected to a server that reports up in-flight and health checks are done per client request.
+each request is only connected to a server that reports up in-flight and health checks are done per client request.
 
 Kiaproxy is a TCP load balancer and can handle TLS passthrough (SSL/TLS/HTTPS backends), HTTP backends, and TCP/raw backends.
 
